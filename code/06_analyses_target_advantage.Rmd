@@ -1,0 +1,280 @@
+---
+title: "06 - Analyses for target advantage"
+author: "Janet Bang"
+date: "August 19, 2019"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE, cache=FALSE)
+```
+
+
+This code includes the analyses for target advantage scores.
+
+
+## Load libraries and functions
+```{r}
+library(tidyverse)
+library(openxlsx)
+library(lme4)
+library(influence.ME)
+library(emmeans)
+library(lmerTest)
+library(compute.es)
+library(lattice)
+library(pwr)
+library(sjPlot)
+
+theme_set(theme_bw())
+
+source("./helper_functions/R_helperFunctions_WLdata.R")
+```
+
+
+
+# Proportion fixation duration
+## Read in csv files
+```{r}
+fix_dur_wide <- read_csv("./data/fix_dur_wide.csv") 
+demographics <- read.csv("./data/demographics.csv")
+```
+
+
+## Add language information and select variables for analysis
+```{r}
+# select language variable
+language <- demographics %>% 
+  select(c(participant, language))
+
+# select variables for prop_cue
+target_advtg <- fix_dur_wide %>% 
+  select(c(participant, object, trial_num, motion, 
+           group, seq, block, cueCond, 
+           base_targAdvtg, cue1and2sum_targAdvtg,test_targAdvtg)) %>% 
+  left_join(language, by = "participant")
+```
+
+
+## Turn to long and create variable names
+```{r}
+# turn to long
+target_advtg_full <- target_advtg %>% 
+  gather(variable, value, base_targAdvtg, cue1and2sum_targAdvtg,test_targAdvtg)
+
+# create variables
+target_advtg_full <- target_advtg_full %>% 
+  mutate(video_phase = ifelse(grepl("base", target_advtg_full$variable), "base", 
+                       ifelse(grepl("test", target_advtg_full$variable), "test", "cue1and2sum")), 
+         variable = "target_advtg",
+         aoi_cue = ifelse(grepl("eye",  target_advtg_full$variable), "eye", "arw")) %>% 
+  mutate(video_phase = plyr::revalue(video_phase, c("cue1and2sum" = "teaching"))) %>% 
+  select(-variable)
+```
+
+
+
+## Transform variables and re-order levels
+```{r}
+target_advtg_full <- target_advtg_full %>% 
+  mutate(participant = factor(participant), 
+         object = factor(object), 
+         trial_num = factor(trial_num), 
+         motion = factor(motion), 
+         group = factor(group),
+         block = factor(block), 
+         cueCond = factor(cueCond), 
+         video_phase = factor(video_phase), 
+         language = factor(language)) %>% 
+  mutate(motion = fct_relevel(motion, "static", "function"),
+         group = fct_relevel(group, "TYP", "ASD"), 
+         cueCond = fct_relevel(cueCond, "eye", "arw"))
+```
+
+
+
+## Visual analysis: distribution of DV
+```{r}
+ggplot(target_advtg_full, aes(x = value, fill = cueCond)) + 
+  geom_density(alpha = .3) + 
+  facet_wrap(~ motion + video_phase) 
+```
+
+
+## Create dataframes for matched groups
+```{r}
+target_advtg_match <- target_advtg_full %>% 
+  filter(participant == 302 | participant == 304 | participant == 306 | participant == 310 |
+         participant == 312 | participant == 314 | participant == 315 | participant == 318 |
+         participant == 321 | participant == 322 | participant == 323 | participant == 324 |
+         participant == 325 | participant == 326 | participant == 329 | participant == 331 |
+         participant == 332 | participant == 333 | participant == 341 | participant == 347 |
+         participant == 349 | participant == 402 | participant == 403 | participant == 404 |
+         participant == 406 | participant == 407 | participant == 408 | participant == 409 |
+         participant == 410 | participant == 412 | participant == 413 | participant == 414 |
+         participant == 415 | participant == 416 | participant == 418 | participant == 420 |
+         participant == 421 | participant == 424 | participant == 425 | participant == 427 |
+         participant == 428 | participant == 429 | participant == 430 | participant == 433 |
+         participant == 435 | participant == 439 | participant == 443 | participant == 445)
+
+# this results in 24 td and 22 asd (2 asd dropped from eye tracking)
+target_advtg_match %>% 
+  distinct(participant,group) %>% 
+  group_by(group) %>% 
+  dplyr::count()
+```
+
+## Mixed models: full group of 41 TD and 22 ASD
+```{r}
+# comparing models with and without slope
+m_targAdvtg_full = lmerTest::lmer(value ~ cueCond * video_phase * motion * group + 
+                        (1 | participant),
+                        data = target_advtg_full, REML = F) 
+
+m_targAdvtg_full_withslope = lmerTest::lmer(value ~ cueCond * video_phase * motion * group + 
+                        (1 + cueCond | participant),
+                        data = target_advtg_full, REML = F) 
+
+anova(m_targAdvtg_full, m_targAdvtg_full_withslope)
+
+
+
+# final model for p values calculated with Kenward-Roger's method
+m_targAdvtg_full_REML = lmerTest::lmer(value ~ cueCond * video_phase * motion * group + 
+                        (1 + cueCond | participant),
+                        data = target_advtg_full) 
+
+anova(m_targAdvtg_full_REML, type = c("III"), ddf = "Kenward-Roger")
+
+
+
+# emmeans
+object1 <- emmeans(m_targAdvtg_full_REML, ~ video_phase | motion)
+object2 <- emmeans(m_targAdvtg_full_REML, ~ motion | video_phase)
+
+object1
+rbind(pairs(object1), pairs(object2), adjust = "tukey")
+
+# visualization of interactions
+emmip(m_targAdvtg_full_REML, ~ video_phase | motion, CIs = T)
+
+emmip(m_targAdvtg_full_REML, ~ group ~ cueCond | motion, CIs = T)
+ggsave("./figures/targAdvtg_3way_n63.pdf")
+
+
+
+# confidence interval of cue comparison: estimate +/- 1.96*SE
+object3 <- emmeans(m_targAdvtg_full_REML, ~ cueCond)
+pairs(object3)
+
+# gaze - arrow
+-0.009347344 - (1.96*(0.03730354))
+-0.009347344 + (1.96*(0.03730354))
+
+
+# Cohen's d for cue comparison of gaze-arrow
+summarySEwithin(target_advtg_full, measurevar = "value", 
+                withinvars = c("cueCond"),
+                idvar = "participant", na.rm = T, conf.interval=.95)
+
+n <- c(685, 683)
+mean <- c(0.1056441, 0.1297186)
+sd <- c(0.7172948, 0.7024318)
+df <- data.frame(n,mean,sd)
+pooled.sd1 <- sqrt(sum(df$sd^2 * (df$n - 1)) / (sum(df$n - 1)) )
+mes2(mean[1], mean[2], pooled.sd1, n[1], n[2])
+
+
+
+# MODEL DIAGNOSTICS
+plot_model(m_targAdvtg_full_REML, type = "diag")
+
+
+# plot for publication
+# create values
+values <- with(summary(emmeans(m_targAdvtg_full_REML, ~ motion * group * video_phase)), 
+               cbind(motion, group, video_phase, emmean, lower.CL,upper.CL))
+values2 <- data.frame(setNames(as.data.frame(values), c("motion", "group", "video_phase", "mean", "lwr","upr")))
+values2 <- transform(values2,
+                     motion = factor(motion),
+                     group = factor(group), 
+                     video_phase = factor(video_phase))
+values2$motion <- revalue(values2$motion, c("1" = "static", "2" = "function"))
+values2$group <- revalue(values2$group, c("1" = "TD", "2" = "ASD"))
+values2$video_phase <- revalue(values2$video_phase, c("1" = "baseline", "2" = "teaching", "3" = "test"))
+
+
+# plot
+ggplot(values2, aes(video_phase, y = mean, ymin = lwr, ymax = upr, linetype = group, shape = group))+
+  geom_line(aes(group = group), size = 1, position = position_dodge(width = .2)) +
+  geom_pointrange(data = values2, position=position_dodge(width = .2), size = 1) + 
+  geom_errorbar(width = .3, size = 1, position = position_dodge(width = .2)) +
+  labs(y = "target advantage", x = "video phase") + 
+  theme_bw(base_size = 12, base_family = "") + 
+  theme(text = element_text(size = 30)) + 
+  scale_shape_manual(values = c(19, 17)) + 
+  geom_hline(yintercept = 0) + 
+  facet_wrap(~ motion, ncol = 2)
+ggsave("./figures/target_advantage.pdf", width = 15, height = 7, unit = "in")
+```
+
+
+
+## Mixed models - matched groups
+```{r}
+# comparing models with and without slope
+m_targAdvtg_match = lmerTest::lmer(value ~ cueCond * video_phase * group * motion + 
+                        (1 | participant),
+                        data = target_advtg_match, REML = F) 
+
+m_targAdvtg_match_withslope = lmerTest::lmer(value ~ cueCond * video_phase * group * motion + 
+                        (1 + cueCond | participant),
+                        data = target_advtg_match, REML = F) 
+
+anova(m_targAdvtg_match, m_targAdvtg_match_withslope)
+
+
+
+# final model for p values calculated with Kenward-Roger's method
+m_targAdvtg_match_REML = lmerTest::lmer(value ~ cueCond * video_phase * group * motion + 
+                        (1 + cueCond | participant),
+                        data = target_advtg_match) 
+
+anova(m_targAdvtg_match_REML, type = c("III"), ddf = "Kenward-Roger")
+
+
+emmip(m_targAdvtg_match_REML, ~ group ~ cueCond | motion, CIs = T)
+# ggsave("targAdvtg_3way_n46.pdf")
+
+
+# MODEL DIAGNOSTICS
+plot_model(m_targAdvtg_match_REML, type = "diag")
+
+```
+
+
+## Visual analysis: language, block to look at potential cue condition effects
+```{r}
+# language 
+ggplot(target_advtg_full, aes(cueCond, value, fill = cueCond)) + 
+  geom_boxplot() + 
+  geom_jitter(alpha = .3) + 
+  stat_summary(fun.data = give.n, geom = "text", size = 6, position=position_dodge(width=.9)) +
+  stat_summary(fun.y = mean, shape = 16, col='red', geom = 'point', size = 3, position=position_dodge(width=.9)) + 
+  facet_wrap(~ language + video_phase, ncol = 3) 
+
+# block
+ggplot(target_advtg_full, aes(cueCond, value, fill = cueCond)) + 
+  geom_boxplot() + 
+  geom_jitter(alpha = .3) + 
+  stat_summary(fun.data = give.n, geom = "text", size = 6, position=position_dodge(width=.9)) +
+  stat_summary(fun.y = mean, shape = 16, col='red', geom = 'point', size = 3, position=position_dodge(width=.9)) + 
+  facet_wrap(~ block + video_phase, ncol = 3) 
+```

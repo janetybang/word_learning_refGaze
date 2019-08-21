@@ -1,0 +1,128 @@
+---
+title: "03 - Calculate contingent looking variables for analysis"
+author: "Janet Bang"
+date: "August 11, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This code calculates the contingent looking variables used in analyses.
+
+Variables include:
+1. participant: participant id  
+2. object: fopam, mimole, nalip, pagoune  
+3. motion: static or function  
+4. video_phase: phase of video (i.e., base, label1 or label2, cue1 or cue2, center, test, test_point)  
+6. trial_num: 1, 2, 3, 4  
+7. num_contlook_targTeye: number of contingent looks from target to area of eye and area of eye to target  
+8. num_contlook_targTarw: number of contingent looks from target to area of arrow and area of arrow to target  
+9. num_contlook_compTeye: number of contingent lookso from competitor to area of eye and area of eye to target  
+10. num_contlook_compTarw: number of contingent lookso from competitor to area of arrow and area of arrow to target
+
+
+
+# Load libraries
+```{r}
+library(tidyverse)
+library(openxlsx)
+library(reshape2)
+
+theme_set(theme_classic())
+```
+
+# Read in data
+```{r}
+contlook_wl <- read_csv("./data/contlook_wl.csv")
+more_than_25pcttk <- read_csv("./data/more_than_25pcttk.csv")
+```
+
+
+# Keep phases where Percent Tracking > 25 % and only cue1 and cue2 phases
+```{r}
+contlook_wl_clean <- contlook_wl %>% 
+  right_join(more_than_25pcttk, by = c("participant", "object", "motion", "trial_num"))  %>% 
+  filter(video_phase == "cue1" | video_phase == "cue2")
+```
+
+
+
+# Create summary score of cue1 and cue2
+```{r}
+contlook_cue1and2sum <- plyr::ddply(contlook_wl_clean, c("participant", "object", "motion", "trial_num"),
+                              summarise,
+                              cue1and2sum_contlook_targTeye = sum(num_contlook_targTeye),
+                              cue1and2sum_contlook_targTarw = sum(num_contlook_targTarw),
+                              cue1and2sum_contlook_compTeye = sum(num_contlook_compTeye),
+                              cue1and2sum_contlook_compTarw = sum(num_contlook_compTarw))
+```
+
+
+# Create difference score for cue1 and cue2
+```{r}
+contlook_cue1and2sum <- contlook_cue1and2sum %>% 
+  mutate(cue1and2diff_contlook_eye_targVcomp = cue1and2sum_contlook_targTeye - cue1and2sum_contlook_compTeye, 
+         cue1and2diff_contlook_arw_targVcomp = cue1and2sum_contlook_targTarw - cue1and2sum_contlook_compTarw)
+```
+
+
+# Create variables
+```{r}
+# turn to long
+contlook_wl_long <- contlook_cue1and2sum %>% 
+  gather(variable, value, 
+         cue1and2sum_contlook_targTeye, cue1and2sum_contlook_targTarw,
+         cue1and2sum_contlook_compTeye, cue1and2sum_contlook_compTarw,
+         cue1and2diff_contlook_eye_targVcomp, cue1and2diff_contlook_arw_targVcomp)
+
+
+# create variables
+contlook_wl_long <- contlook_wl_long %>% 
+  mutate(video_phase = "cue1and2", 
+         diff_or_sum = ifelse(grepl("diff", contlook_wl_long$variable), "contlook_diff", "contlook_sum"), 
+         contlook_type = ifelse(grepl("targTeye", contlook_wl_long$variable), "targTeye", 
+                        ifelse(grepl("targTarw", contlook_wl_long$variable), "targTarw", 
+                        ifelse(grepl("compTeye", contlook_wl_long$variable), "compTeye", 
+                        ifelse(grepl("compTarw", contlook_wl_long$variable), "compTarw", "targVcomp")))), 
+         contlook_cue = ifelse(grepl("eye",  contlook_wl_long$variable), "eye", "arw")) %>% 
+  select(-variable)
+```
+
+
+# Combine with experiment info
+```{r}
+# read in exp_info
+exp_info_wl <- read_csv("./data/exp_info_wl.csv") %>% 
+  filter(practice == "exp") %>% 
+  select(-practice) %>% 
+  mutate(trial_num = as.integer(trial_num)) # transform to same variable type as in contlook_wl_long
+
+# merge with contlook_wl_long
+contlook_wl_long <- exp_info_wl %>% 
+  right_join(contlook_wl_long, by = c("participant", "object", "motion", "trial_num"))
+
+
+# check # of participants: 22 ASD and 41 TD
+contlook_wl_long %>% 
+  distinct(participant, group) %>% 
+  group_by(group) %>% 
+  dplyr::count()
+```
+
+
+# Identify when the cue condition matches the contlook_cue
+Regardless of cue condition, there was an AOI in the area of gaze and in the area of the arrow. Therefore, to analyze the data we need to identify when the AOI matches cue condition.
+```{r}
+contlook_wl_long <- contlook_wl_long %>% 
+  mutate(cue_match =  ifelse(cueCond == "arw" & contlook_cue == "arw", "match", 
+                      ifelse(cueCond== "eye" & contlook_cue == "eye", "match", "no_match")))
+```
+
+
+# Write to csv
+```{r}
+write_csv(contlook_wl_long,  "./data/contlook_wl_long.csv")
+```

@@ -1,0 +1,131 @@
+---
+title: "08 - Analyses for pointing data"
+author: "Janet Bang"
+date: "August 19, 2019"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE, cache=FALSE)
+```
+
+
+This code includes the analyses for pointing data.
+
+
+## Load libraries and functions
+```{r}
+library(tidyverse)
+library(lme4)
+library(influence.ME)
+library(emmeans)
+library(lmerTest)
+library(compute.es)
+library(lattice)
+library(sjPlot)
+
+theme_set(theme_bw())
+
+source("./helper_functions/R_helperFunctions_WLdata.R")
+```
+
+
+# Pointing 
+## Read in csv files
+```{r}
+exp_info_wl <- read.csv("./data/exp_info_wl.csv")
+demographics <- read.csv("./data/demographics.csv")
+```
+
+
+
+## Create df with all variables of interest
+```{r}
+# select language variable
+language <- demographics %>% 
+  select(c(participant, language))
+
+
+# select variables in exp_info_wl and combine with new description data
+pointing <- exp_info_wl %>%
+  filter(object != "hammer" & object != "scissors") %>% 
+  select(-c(practice, eyetk_inc)) %>% 
+  left_join(language, by = "participant")
+
+
+# exclude pointing coded as 999 (children did not point)
+pointing <- pointing %>% 
+  filter(point.target != 999)
+```
+
+
+## Transform variables and reorder levels
+```{r}
+pointing <- pointing %>% 
+  mutate(participant = factor(participant), 
+         seq = factor(seq), 
+         object = factor(object),
+         trial_num = factor(trial_num), 
+         block = factor(block), 
+         cueCond = factor(cueCond), 
+         language = factor(language),
+         motion = factor(motion)) %>% 
+  mutate(group = fct_relevel(group, "TYP", "ASD"), 
+         cueCond = fct_relevel(cueCond, "eye", "arw"), 
+         motion = fct_relevel(motion, "static", "function"))
+
+
+# check number of participants: ASD n = 25; TD = 43
+pointing %>% 
+  distinct(participant,group) %>% 
+  group_by(group) %>% 
+  dplyr::count()
+```
+
+
+## Frequency of children per group with correct and incorrect referent selection
+```{r}
+sum_pointing <- pointing %>% 
+  group_by(participant, group, motion) %>% 
+  tally(point.target) %>% 
+  mutate(n = factor(n))
+
+sum_pointing2 <- sum_pointing %>% 
+  group_by(group, motion, n) %>% 
+  dplyr::count() %>% 
+  mutate(total_children = ifelse(group == "TYP", 43, 25)) %>% 
+  mutate(prop_children = nn / total_children)
+
+ggplot(sum_pointing2, aes(x = n, y = prop_children, fill = group)) + 
+  geom_col(position = "dodge") + 
+  facet_wrap(~ motion)
+```
+
+## Mixed models: full group of 43 TD and 25 ASD
+```{r}
+# comparing models with and without slope
+m_descrip_pointing = glmer(point.target ~ motion * group + 
+                                   (1 | participant), data = pointing, family = binomial,
+                                   control = glmerControl(optimizer="bobyqa")) 
+m_descrip_pointing_withslope = glmer(point.target ~ motion * group + 
+                                   (1 + cueCond | participant), data = pointing, family = binomial,
+                                   control = glmerControl(optimizer="bobyqa")) 
+
+anova(m_descrip_pointing, m_descrip_pointing_withslope)
+
+
+# final model for analysis
+summary(m_descrip_pointing_withslope)
+car::Anova(m_descrip_pointing_withslope, type = "III", ddf = "Kenward-Roger")
+
+
+# MODEL DIAGNOSTICS
+plot_model(m_descrip_pointing_withslope, type = "diag")
+```
