@@ -1,0 +1,587 @@
+---
+title: "09 - Analyses for the number of semantic features"
+author: "Janet Bang"
+date: "August 19, 2019"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE, cache=FALSE)
+```
+
+
+This code includes the analyses for description data.
+
+NOTE: One participant (312) only has 7 total descriptions instead of a possible 8 descriptions (across visits 1 and 2) because 1 was administered incorrectly. 
+
+
+## Load libraries and functions
+```{r}
+library(tidyverse)
+library(openxlsx)
+library(lme4)
+library(influence.ME)
+library(emmeans)
+library(lmerTest)
+library(compute.es)
+library(lattice)
+library(GGally)
+library(sjPlot)
+library(effects)
+library(Hmisc)
+library(pwr)
+
+theme_set(theme_bw())
+
+source("./helper_functions/R_helperFunctions_WLdata.R")
+```
+
+
+## Read in csv files
+```{r}
+descrip_sum <- read.csv("./data/descrip_sum.csv")
+exp_info_wl <- read.csv("./data/exp_info_wl.csv")
+demographics <- read.csv("./data/demographics.csv")
+```
+
+
+## Combine info in files
+```{r}
+# Select variables in demographics and combine with description data
+demo_descrip_sum <- demographics %>% 
+  select(c(participant, age_yrs, language, sex, mother_ed)) %>% 
+  right_join(descrip_sum, by = "participant")
+
+# Select variables in exp_info_wl and combine with new description data
+descrip <- exp_info_wl %>%
+  filter(motion == "static") %>%  
+  select(-c(practice, motion, eyetk_inc)) %>% 
+  right_join(demo_descrip_sum, by = c("participant", "object"))
+```
+
+## Transform variables and reorder levels
+```{r}
+descrip <- descrip %>% 
+  mutate(participant = factor(participant), 
+         seq = factor(seq), 
+         object = factor(object),
+         trial_num = factor(trial_num), 
+         block = factor(block), 
+         cueCond = factor(cueCond), 
+         language = factor(language),
+         visit = factor(visit)) %>% 
+  mutate(group = fct_relevel(group, "TYP", "ASD"), 
+         cueCond = fct_relevel(cueCond, "eye", "arw"))
+
+
+# check number of participants: ASD n = 22; TD = 43
+# 1 child with ASD could not complete the task at all and 2 children with ASD were not able to provide descriptions of both familiar objects at both visits
+descrip %>% 
+  distinct(participant,group) %>% 
+  group_by(group) %>% 
+  dplyr::count()
+```
+
+# Number of correct target objects
+## Create column for binary coding of whether child described target object
+```{r}
+descrip <- descrip %>% 
+  mutate(target_bin = ifelse(correct_object == "target_object", 1, 0))
+```
+
+
+
+## Frequency of children per group with valid and invalid descriptions
+```{r}
+sum_descrip <- descrip %>% 
+  group_by(participant, group, visit) %>% 
+  tally(target_bin) %>% 
+  mutate(num_correct = factor(n))
+
+sum_descrip2 <- sum_descrip %>% 
+  group_by(group, visit, num_correct) %>% 
+  dplyr::count() %>% 
+  mutate(total_children = ifelse(group == "TYP", 43, 22)) %>% 
+  mutate(prop_children = nn / total_children)
+
+ggplot(sum_descrip2, aes(x = num_correct, y = prop_children, fill = group)) + 
+  geom_col(position = "dodge") + 
+  facet_wrap(~ visit)
+```
+
+
+
+## Mixed models - everyone
+```{r}
+# comparing models with and without slope
+m_descrip_correct_target = glmer(target_bin ~ visit * group + 
+                                   (1 | participant), data = descrip, family = binomial,
+                                   control = glmerControl(optimizer="bobyqa")) 
+m_descrip_correct_target_withslope = glmer(target_bin ~ visit * group + 
+                                   (1 + cueCond | participant), data = descrip, family = binomial,
+                                   control = glmerControl(optimizer="bobyqa")) 
+
+anova(m_descrip_correct_target, m_descrip_correct_target_withslope)
+
+# final model for analysis
+summary(m_descrip_correct_target)
+car::Anova(m_descrip_correct_target, type = "III", ddf = "Kenward-Roger")
+
+
+# MODEL DIAGNOSTICS
+plot_model(m_descrip_correct_target, type = "diag")
+```
+
+
+
+
+# Number of semantic features
+## Select only target object descriptions and create summary score of semantic features
+```{r}
+# Select only target object descriptions
+descrip_mm <- descrip %>% 
+  filter(correct_object == "target_object") %>% 
+  mutate(participant = factor(participant))
+
+descrip_mm <- descrip_mm %>% 
+  mutate(sem_features = sum_intd_fxn + sum_phys_attb + sum_imagined_phys_attb)
+
+descrip_mm %>% 
+  distinct(participant, group) %>% 
+  ungroup() %>% 
+  group_by(group) %>% 
+  tally()
+```
+
+
+## Visual analysis: distribution of DV
+```{r}
+ggplot(descrip_mm, aes(x = sem_features, fill = cueCond)) + 
+  geom_density(alpha = .3) + 
+  facet_wrap(~ visit) 
+
+
+# distribution of # of observations from each participant
+obs_per_participant <- descrip_mm %>% 
+  distinct(participant, group, object, visit, cueCond) %>% 
+  group_by(participant, group, cueCond) %>% 
+  dplyr::count()
+
+ggplot(obs_per_participant, aes(n, fill = cueCond)) + 
+  geom_histogram(position = position_dodge())
+```
+
+
+
+## Mixed models: full group of 41 TD and 19 ASD (the model excludes children who never provided any valid descriptions)
+```{r}
+# comparing models with and without slope
+m_descrip = lmerTest::lmer(sem_features ~ cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm, REML = F) 
+
+m_descrip_withslope = lmerTest::lmer(sem_features ~ cueCond * visit * group + 
+                        (1 + cueCond | participant),
+                        data = descrip_mm, REML = F) 
+
+anova(m_descrip, m_descrip_withslope)
+
+
+
+# final model for p values calculated with Kenward-Roger's method
+m_descrip_REML = lmerTest::lmer(sem_features ~ cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm) 
+
+anova(m_descrip_REML, type = c("III"), ddf = "Kenward-Roger")
+
+
+
+# confidence interval of cue comparison: estimate +/- 1.96*SE
+object1 <- emmeans(m_descrip_REML, ~ cueCond)
+object1
+pairs(object1)
+
+# gaze - arrow
+0.6961047 - (1.96*(0.3741881))
+0.6961047 + (1.96*(0.3741881))
+
+
+# Cohen's d for cue comparison of gaze-arrow
+summarySEwithin(descrip_mm, measurevar = "sem_features", 
+                withinvars = c("cueCond"),
+                idvar = "participant", na.rm = T, conf.interval=.95)
+
+n <- c(121, 123)
+mean <- c(6.148760 , 5.707317)
+sd <- c(3.159950, 2.781065)
+df <- data.frame(n,mean,sd)
+pooled.sd1 <- sqrt(sum(df$sd^2 * (df$n - 1)) / (sum(df$n - 1)) )
+mes2(mean[1], mean[2], pooled.sd1, n[1], n[2])
+
+
+
+
+# MODEL DIAGNOSTICS
+plot_model(m_descrip_REML, type = "diag")
+```
+
+
+
+## Visual analysis: language, block to look at cue condition effects
+```{r}
+# language 
+ggplot(descrip_mm, aes(cueCond, sem_features, fill = cueCond)) + 
+  geom_boxplot() + 
+  geom_jitter(alpha = .3) + 
+  stat_summary(fun.data = give.n, geom = "text", size = 6, position=position_dodge(width=.9)) +
+  stat_summary(fun.y = mean, shape = 16, col='red', geom = 'point', size = 3, position=position_dodge(width=.9)) + 
+  facet_wrap(~ language, ncol = 2) 
+
+# block
+ggplot(descrip_mm, aes(cueCond, sem_features, fill = cueCond)) + 
+  geom_boxplot() + 
+  geom_jitter(alpha = .3) + 
+  stat_summary(fun.data = give.n, geom = "text", size = 6, position=position_dodge(width=.9)) +
+  stat_summary(fun.y = mean, shape = 16, col='red', geom = 'point', size = 3, position=position_dodge(width=.9)) + 
+  facet_wrap(~ block, ncol = 2) 
+```
+
+
+
+# Relationships with covariates - Exploratory
+## Read in csv files
+```{r}
+celf <- read.csv("./data/celf.csv")
+leiter <- read.csv("./data/leiter.csv")
+vineland <- read.csv("./data/vineland.csv")
+```
+
+
+
+## Select variables and combine into one df
+```{r}
+# celf
+celf2 <- celf %>%
+  dplyr::select(c(participant, celf4_RS_scaled, celf4_WC_total_scaled, celf4_WA_total))
+
+# leiter
+leiter2 <- leiter %>% 
+  dplyr::select(c(participant, leiter_composite)) %>% 
+  right_join(celf2, by = "participant")
+
+# vineland
+vineland2 <- vineland %>% 
+  dplyr::select(c(participant, social_standScore)) %>% 
+  right_join(leiter2, by = "participant") %>% 
+  mutate(participant = factor(participant))
+```
+
+
+## Combine above covariate info with description data
+```{r}
+descrip_mm_cov <- descrip_mm %>% 
+  left_join(vineland2, by = "participant")
+
+# check number of participants: 19 ASD, 41 TD
+descrip_mm_cov %>% 
+  distinct(participant,group) %>% 
+  group_by(group) %>% 
+  dplyr::count()
+
+```
+
+
+
+## Visual analysis of Vineland x semantic features
+```{r}
+ggplot(descrip_mm_cov, aes(social_standScore, sem_features, color = cueCond)) +
+  geom_point() + 
+  geom_smooth(method = "lm") + 
+  facet_wrap(~ group)
+
+
+# removing outlier with high Vineland score (TD participant)
+descrip_mm_cov_rm1 <- descrip_mm_cov %>% 
+  filter(social_standScore != 160)
+
+ggplot(descrip_mm_cov_rm1, aes(social_standScore, sem_features, color = cueCond)) +
+  geom_point() + 
+  geom_smooth(method = "lm") + 
+  facet_wrap(~ group)
+```
+
+
+
+## Center covariates
+```{r}
+centered_scores <- descrip_mm_cov %>% 
+  distinct(participant, social_standScore, celf4_RS_scaled, celf4_WC_total_scaled) %>% 
+  mutate(vineland_cntr = scale(social_standScore, scale = F)) %>% 
+  mutate(vineland_cntr = as.numeric(vineland_cntr)) %>% 
+  mutate(celf4_RS_scaled_cntr = scale(celf4_RS_scaled, scale = F)) %>% 
+  mutate(celf4_RS_scaled_cntr = as.numeric(celf4_RS_scaled_cntr)) %>% 
+  mutate(celf4_WC_total_scaled_cntr = scale(celf4_WC_total_scaled, scale = F)) %>% 
+  mutate(celf4_WC_total_scaled_cntr = as.numeric(celf4_WC_total_scaled_cntr))
+
+descrip_mm_cov <- centered_scores %>% 
+  right_join(descrip_mm_cov, by = c("participant", "social_standScore", "celf4_RS_scaled", "celf4_WC_total_scaled"))
+```
+
+
+## Mixed models: full group of 41 TD and 19 ASD with Vineland
+```{r}
+# comparing models with and without slope
+m_vineland = lmerTest::lmer(sem_features ~ vineland_cntr * cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm_cov, REML = F) 
+
+m_vineland_withslope = lmerTest::lmer(sem_features ~ vineland_cntr * cueCond * visit * group + 
+                        (1 + cueCond | participant),
+                        data = descrip_mm_cov, REML = F)
+
+anova(m_vineland, m_vineland_withslope)
+
+
+# final model for p values calculated with Kenward-Roger's method
+m_vineland_REML = lmerTest::lmer(sem_features ~ vineland_cntr * cueCond * visit * group +
+                        (1 | participant),
+                        data = descrip_mm_cov) 
+
+anova(m_vineland_REML, type = c("III"), ddf = "Kenward-Roger")
+
+
+
+# confidence interval of cue comparison: estimate +/- 1.96*SE
+object1 <- emmeans(m_vineland_REML, ~ cueCond)
+object1
+pairs(object1)
+
+# gaze - arrow
+1.207094 - (1.96*(0.6380356))
+1.207094 + (1.96*(0.6380356))
+
+
+# power for difference between gaze and arrow in static videos
+# based on a paired t-test and cohen's d using a pooled sd
+pwr.t.test(n = 60, d = .15, sig.level = 0.05, power = NULL, 
+    type = c("paired"),
+    alternative = c("two.sided"))
+
+
+
+
+
+# post hoc testing of trends
+trends_cueCond <- emtrends(m_vineland_REML, pairwise ~ cueCond, var = "vineland_cntr" )
+trends_group <- emtrends(m_vineland_REML, pairwise ~ group, var = "vineland_cntr" )
+
+trends_cueCond
+summary(trends_cueCond, infer=c(TRUE,TRUE), null=0)
+summary(trends_group, infer=c(TRUE,TRUE), null=0)
+
+# visualization of interactions
+emmip(m_vineland_REML, cueCond ~ vineland_cntr, cov.reduce = range)
+emmip(m_vineland_REML, group ~ vineland_cntr, cov.reduce = range)
+
+
+# plots for publication
+plot_model(m_vineland_REML, type = "eff", terms = c("vineland_cntr", "cueCond"), 
+           color = c("blue", "red"), 
+           axis.lim = c(0, 16)) 
+ggsave("./figures/sem_features_vineland_slopes.pdf", width = 11.5, height = 8, unit = "in")
+
+
+ggplot(descrip_mm_cov, aes(x = vineland_cntr, y = sem_features, shape = group, color = cueCond)) + 
+  geom_jitter(size = 3) + 
+  scale_shape_manual(values = c(1,17)) + 
+  ylim(0, 16) + 
+  scale_color_manual(values = c("red", "blue"))
+ggsave("./figures/sem_features_vineland_points.pdf", width = 11.5, height = 8, unit = "in")
+
+
+
+# MODEL DIAGNOSTICS
+plot_model(m_vineland_REML, type = "diag")
+```
+
+
+
+
+## Mixed models: 40 TD and 19 ASD - removing TD outlier with high Vineland score
+```{r}
+descrip_mm_cov_rm1 <- descrip_mm_cov %>% 
+  filter(social_standScore != 160)
+
+# comparing models with and without slope
+m_vineland_rm1 = lmerTest::lmer(sem_features ~ vineland_cntr * cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm_cov_rm1, REML = F) 
+
+m_vineland_withslope_rm1 = lmerTest::lmer(sem_features ~ vineland_cntr * cueCond * visit * group + 
+                        (1 + cueCond | participant),
+                        data = descrip_mm_cov_rm1, REML = F)
+
+anova(m_vineland_rm1, m_vineland_withslope_rm1)
+
+
+# final model for p values calculated with Kenward-Roger's method
+m_vineland_REML_rm1 = lmerTest::lmer(sem_features ~ vineland_cntr * cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm_cov_rm1) 
+
+anova(m_vineland_REML_rm1, type = c("III"), ddf = "Kenward-Roger")
+
+
+# post hoc testing of trends
+trends_cueCond_n59 <- emtrends(m_vineland_REML_rm1, pairwise ~ cueCond, var = "vineland_cntr" )
+
+trends_cueCond_n59
+summary(trends_cueCond_n59, infer=c(TRUE,TRUE), null=0)
+
+# plots
+emmip(m_vineland_REML_rm1, cueCond ~ vineland_cntr, cov.reduce = range)
+
+
+
+# MODEL DIAGNOSTICS
+plot_model(m_vineland_REML_rm1, type = "diag")
+```
+
+
+
+## Create dataframes for full TD only and matched groups
+```{r}
+descrip_mm_cov_match <- descrip_mm_cov %>% 
+  filter(participant == 302 | participant == 304 | participant == 306 | participant == 310 |
+         participant == 312 | participant == 314 | participant == 315 | participant == 318 |
+         participant == 321 | participant == 322 | participant == 323 | participant == 324 |
+         participant == 325 | participant == 326 | participant == 329 | participant == 331 |
+         participant == 332 | participant == 333 | participant == 341 | participant == 347 |
+         participant == 349 | participant == 402 | participant == 403 | participant == 404 |
+         participant == 406 | participant == 407 | participant == 408 | participant == 409 |
+         participant == 410 | participant == 412 | participant == 413 | participant == 414 |
+         participant == 415 | participant == 416 | participant == 418 | participant == 420 |
+         participant == 421 | participant == 424 | participant == 425 | participant == 427 |
+         participant == 428 | participant == 429 | participant == 430 | participant == 433 |
+         participant == 435 | participant == 439 | participant == 443 | participant == 445)
+
+# this results in 23 asd and 18 td (these are children who have valid descriptions of the target)
+descrip_mm_cov_match %>% 
+  distinct(participant,group) %>% 
+  group_by(group) %>% 
+  dplyr::count()
+```
+
+
+
+## Mixed models: matched group 23 TD and 18 ASD
+```{r}
+# comparing models with and without slope
+m_vineland_matched = lmerTest::lmer(sem_features ~ vineland_cntr * cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm_cov_match , REML = F) 
+
+m_vineland_withslope_matched = lmerTest::lmer(sem_features ~ vineland_cntr * cueCond * visit * group + 
+                        (1 + cueCond | participant),
+                        data = descrip_mm_cov_match , REML = F)
+
+anova(m_vineland_matched, m_vineland_withslope_matched)
+
+
+# final model for p values calculated with Kenward-Roger's method
+m_vineland_REML_matched = lmerTest::lmer(sem_features ~ vineland_cntr * cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm_cov_match) 
+
+anova(m_vineland_REML_matched, type = c("III"), ddf = "Kenward-Roger")
+
+
+
+# MODEL DIAGNOSTICS
+plot_model(m_vineland_REML_matched, type = "diag")
+```
+
+
+
+
+## Correlation matrix for covariates
+```{r}
+corr_mtx_cov <- descrip_mm_cov %>% 
+  select(c(age_yrs, leiter_composite, 
+           celf4_RS_scaled, celf4_WC_total_scaled, celf4_WA_total, social_standScore)) %>% 
+  distinct()
+
+rcorr(as.matrix(corr_mtx_cov), type = "pearson")
+
+# plot different comparisons
+ggplot(corr_mtx_cov, aes(celf4_WA_total, social_standScore)) + 
+  geom_point() + 
+  geom_smooth(method = "lm")
+
+```
+
+
+
+## Mixed models: full group of 41 TD and 19 ASD with celf4_WC_total
+```{r}
+# comparing models with and without slope
+m_celf4_WC = lmerTest::lmer(sem_features ~ celf4_WC_total_scaled_cntr * cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm_cov, REML = F) 
+
+m_celf4_WC_withslope = lmerTest::lmer(sem_features ~ celf4_WC_total_scaled_cntr * cueCond * visit * group + 
+                        (1 + cueCond | participant),
+                        data = descrip_mm_cov, REML = F)
+
+anova(m_celf4_WC, m_celf4_WC_withslope)
+
+
+# final model for p values calculated with Kenward-Roger's method
+m_celf4_WC_REML = lmerTest::lmer(sem_features ~ celf4_WC_total_scaled_cntr * cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm_cov) 
+
+anova(m_celf4_WC_REML, type = c("III"), ddf = "Kenward-Roger")
+
+
+# MODEL DIAGNOSTICS
+plot_model(m_celf4_WC_REML, type = "diag")
+```
+
+
+
+
+## Mixed models: full group of 41 TD and 19 ASD with celf4_RS_scaled
+```{r}
+# comparing models with and without slope
+m_celf4_RS = lmerTest::lmer(sem_features ~ celf4_RS_scaled_cntr * cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm_cov, REML = F) 
+
+m_celf4_RS_withslope = lmerTest::lmer(sem_features ~ celf4_RS_scaled_cntr * cueCond * visit * group + 
+                        (1 + cueCond | participant),
+                        data = descrip_mm_cov, REML = F)
+
+anova(m_celf4_RS, m_celf4_RS_withslope)
+
+
+# final model for p values calculated with Kenward-Roger's method
+m_celf4_RS_REML = lmerTest::lmer(sem_features ~ celf4_RS_scaled_cntr * cueCond * visit * group + 
+                        (1 | participant),
+                        data = descrip_mm_cov) 
+
+anova(m_celf4_RS_REML, type = c("III"), ddf = "Kenward-Roger")
+
+
+# MODEL DIAGNOSTICS
+plot_model(m_celf4_RS_REML, type = "diag")
+```
+

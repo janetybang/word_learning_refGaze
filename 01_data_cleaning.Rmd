@@ -1,0 +1,210 @@
+---
+title: "01 - Data cleaning"
+author: "Janet Bang"
+date: "August 11, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This code imports the eyetracking data and cleans data to ony include those trials where participants had 'complete' sequences. 
+
+A complete sequence is defined as Percent Tracking values > 25% (greater than only, not greater than or equal to) to baseline, cue, AND test phases. Therefore, if there are values in any one of these phases 25% or less than 25%, this sequence was tagged as incomplete. This ensured that the trials included in analyses met minimum criteria for children's viewing of phases important for their word learning (i.e., analyzing the test phase means that the child had previously attended to the baseline and cue portion). This was done separately for static and function videos.
+
+Variables include:
+dataframe: eyetk_wl
+1. slide.metrics: variables provided by GazeTracker (stimulus presentation software)  
+2. value: value provided by GazeTracker  
+3. participant: participant id  
+4. video_phase: phase of video (i.e., base, label1 or label2, cue1 or cue2, center, test, test_point)  
+5. object: fopam, mimole, nalip, pagoune  
+6. trial_num: 1, 2, 3, 4  
+7. targetSide: side of the screen that the target object was on (i.e., targR, targL)  
+8. motion: static or function  
+9. aoi: area of interest: eye, arw, target, competitor  
+
+
+dataframe: exp_info_wl
+1. participant: participant id  
+2. group: ASD or TYP  
+3. seq: counterbalancing order (1, 2, 3, 4, 5, 6, 7, 8)  
+4. object: fopam, mimole, nalip, pagoune  
+5. block: 1 or 2  
+6. cueCond: gaze or arrow  
+7. trial_num: 1, 2, 3, 4; 0-1 and 0-2 are used for practice trials in block 1 or 2, respectively  
+8. motion: static or function  
+9. point.target: 1 = pointed correctly at target, 2 = pointed at competitor  
+10. eyetk_inc = include in eyetracking data
+
+
+
+
+# Load libraries
+```{r}
+library(tidyverse)
+library(openxlsx)
+
+theme_set(theme_bw())
+```
+
+
+# Read in data
+```{r}
+eyetk_wl <- read_csv("./data/eyetk_wl.csv") # eyetracking data
+exp_info_wl <- read_csv("./data/exp_info_wl.csv") # experiment info
+```
+
+
+# Select and transform variables
+```{r}
+eyetk_wl <- eyetk_wl %>% 
+  select(-targetSide) %>% 
+  mutate(slide.metrics = factor(slide.metrics), 
+         value = as.numeric(value), 
+         participant = factor(participant), 
+         video_phase = factor(video_phase), 
+         object = factor(object), 
+         trial_num = factor(trial_num), 
+         motion = factor(motion), 
+         aoi = factor(aoi))
+```
+
+
+# Select variables of interest and rename
+```{r}
+eyetk_var <- eyetk_wl %>% 
+  mutate(slide.metrics = plyr::revalue(slide.metrics, 
+                                       c("Percent time tracked" = "pctTimeTracked",
+                                         "Duration before first fixation arrival (seconds)" = "durBeforeFirstFix",                                          "Total fixation duration (seconds)" = "totalFixDur"))) %>% 
+  mutate(video_phase = plyr::revalue(video_phase, c("test-point" = "testPoint")))
+```
+
+
+# Merge dataframes
+```{r}
+# transform variables to allow merge
+exp_info_wl <- exp_info_wl %>% 
+  mutate(participant = factor(participant), 
+         group = factor(group),
+         object = factor(object), 
+         motion = factor(motion), 
+         trial_num = factor(trial_num)) %>% 
+  select(-practice)
+
+# merge with stat_wl_var
+eyetk_var2 <- eyetk_var %>% 
+  full_join(exp_info_wl, by = c("participant", "object", "motion", "trial_num"))
+
+
+# check # of participants
+eyetk_var2 %>% 
+  distinct(participant, group) %>% 
+  group_by(group) %>% 
+  dplyr::count()
+
+```
+
+
+We removed any phases where we deemed that children did not pay enough attention to a phase. This was operationalized as less than 25% of time attending to the phase based on the Percent Tracking variable. This variable accumulates time based on bins of 33 ms of continuous attention to one location. 
+
+Please note that these bins are shorter than the 100 ms bins used for main analyses, which is considered a measure of cognitive processing (Gredebäck et al., 2009; Oakes, 2012).
+
+# Create dataframe with only good eyetracking data and the Percent Tracking variable
+```{r}
+eyetk_ok <- eyetk_var2 %>% 
+  filter((eyetk_inc == 1 | eyetk_inc == "8pt") & 
+          slide.metrics == "pctTimeTracked" & aoi == "overall")
+
+# check # of participants: 22 ASD and 41 TD (3 ASD and 2 TD excluded from eye tracking data)
+eyetk_ok %>% 
+  distinct(participant, group) %>% 
+  group_by(group) %>% 
+  dplyr::count()
+```
+
+
+# Turn dataframe to wide format
+```{r}
+eyetk_ok_wide <- eyetk_ok %>% 
+  spread(video_phase, value)
+```
+
+
+
+# Tag trials that do not meet critera for a 'complete' sequence
+```{r}
+# identify where Percent Tracking is < 25% for cue1 and cue2 combinations
+eyetk_ok_wide <- eyetk_ok_wide %>% 
+  mutate(cue_na_below25 = ifelse((is.na(eyetk_ok_wide$cue1 == T ) & is.na(eyetk_ok_wide$cue2 == T )), "drop", 
+                          ifelse((eyetk_ok_wide$cue1 < 25 & is.na(eyetk_ok_wide$cue2 == T )), "drop", 
+                          ifelse((is.na(eyetk_ok_wide$cue1 == T) & eyetk_ok_wide$cue2 < 25 ), "drop", 
+                          ifelse((eyetk_ok_wide$cue1 < 25 & eyetk_ok_wide$cue2 < 25 ), "drop", "keep")))))
+
+# tag incomplete sequences
+eyetk_ok_wide <- eyetk_ok_wide %>% 
+  mutate(complete_seq = ifelse(is.na(eyetk_ok_wide$base == T), "incomplete", 
+                        ifelse(is.na(eyetk_ok_wide$test == T), "incomplete",
+                        ifelse(eyetk_ok_wide$base < 25, "incomplete", 
+                        ifelse(eyetk_ok_wide$test < 25, "incomplete",
+                        ifelse(eyetk_ok_wide$cue_na_below25 == "drop", "incomplete", "complete"))))))
+
+# complete sequences
+complete_seq <- eyetk_ok_wide %>% filter(complete_seq == "complete")
+```
+
+
+
+# Incomplete sequences
+```{r}
+# incomplete sequences
+incomplete <- eyetk_ok_wide %>% filter(complete_seq == "incomplete")
+
+# percentage of incomplete sequences = 7.39% (only out of experiment sequences, does notn include practice sequences)
+(nrow(incomplete) / nrow(eyetk_ok_wide)) * 100 
+```
+
+
+
+# Create dataframe with variables for analysis only including complete sequences
+```{r}
+# identify columns to merge unique rows with stat_wl_var2
+complete_seq_merge <- complete_seq %>% 
+  select(c(participant, object, motion, trial_num))
+
+# create df with only complete sequences
+eyetk_wl_completeseq <- eyetk_var2 %>% 
+  filter(slide.metrics != "noData") %>%
+  right_join(complete_seq_merge, by = c("participant", "object", "motion", "trial_num"))
+```
+
+
+
+# Create clean dataframe with all complete sequences and phases with > 25% Tracking
+```{r}
+# identify phases with Percent Tracking > 25%
+more_than_25pcttk_phases <- eyetk_wl_completeseq %>% 
+  filter(slide.metrics == "pctTimeTracked" & aoi == "overall" & value > 25) %>% 
+  select(c(participant, object, motion, trial_num)) %>% 
+  distinct()
+
+# create clean df
+eyetk_wl_clean <- eyetk_wl_completeseq %>% 
+  filter(slide.metrics != "pctTimeTracked" & slide.metrics != "noData") %>%
+  right_join(more_than_25pcttk_phases, by = c("participant", "object", "motion", "trial_num")) %>% 
+  select(-c(eyetk_inc))
+```
+
+
+# Write to csv
+```{r}
+write_csv(eyetk_wl_clean, "./data/eyetk_wl_clean.csv")
+write_csv(more_than_25pcttk_phases, "./data/more_than_25pcttk.csv")
+```
+
+
+
+
+
