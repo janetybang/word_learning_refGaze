@@ -109,7 +109,7 @@ sum_descrip2 <- sum_descrip %>%
   group_by(group, visit, num_correct) %>% 
   dplyr::count() %>% 
   mutate(total_children = ifelse(group == "TYP", 43, 22)) %>% 
-  mutate(prop_children = nn / total_children)
+  mutate(prop_children = n / total_children)
 
 ggplot(sum_descrip2, aes(x = num_correct, y = prop_children, fill = group)) + 
   geom_col(position = "dodge") + 
@@ -494,6 +494,7 @@ m_vineland_withslope_matched = lmerTest::lmer(sem_features ~ vineland_cntr * cue
                         data = descrip_mm_cov_match , REML = F)
 
 anova(m_vineland_matched, m_vineland_withslope_matched)
+
 
 
 # final model for p values calculated with Kenward-Roger's method
