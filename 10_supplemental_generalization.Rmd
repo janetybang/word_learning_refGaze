@@ -1,0 +1,464 @@
+---
+title: "Generalization data"
+author: "Janet Bang"
+date: "November 24, 2019"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE, cache=FALSE)
+```
+
+
+This code includes the analyses for pointing data.
+
+
+## Load libraries and functions
+```{r}
+library(tidyverse)
+
+source("./helper_functions/R_helperFunctions_WLdata.R")
+```
+
+
+## Read in csv files, clean and merge
+```{r}
+# read in files
+data <- read_csv("./data/generalization.csv") %>% 
+  mutate(participant = factor(participant))
+
+demographics <- read.csv("./data/demographics.csv") %>% 
+  select(-c(age_mos, mother_ed, father_ed, highest_ed, block1)) %>% 
+  mutate(participant = factor(participant))
+
+
+exp_info <- read.csv("./data/exp_info_wl.csv") %>% 
+  select(c(participant, group, seq, object, block, cueCond, trial_num)) %>% 
+  mutate(participant = factor(participant))
+
+
+# merge and remove those with version 1 (this version included a video with the function, but it was difficult to administer because children would press the button before the experimenter said the prompt so it wasn't clear what they were pressing the button for)
+gen_data <- data %>% 
+  right_join(demographics, by = c("participant")) %>% 
+  left_join(exp_info, by = c("participant", "group", "object")) %>% 
+  mutate(group = fct_relevel(group, "TYP", "ASD")) %>% 
+  na.omit() %>% 
+  distinct() %>% 
+  mutate(visit = as.factor(visit)) %>% 
+  mutate(visit = factor(visit, labels = c("visit1", "visit2")))
+
+
+```
+
+
+## Check number of participants
+
+The number of participants does not reflect the full sample because partway through testing the task was changed (see notes above).
+```{r}
+# check number of participants (TYP = 27 for visit 1 and 29 for visit 2; ASD = 22 for visit 1 and 23 for visit 2)
+gen_data %>% 
+  distinct(participant, group, visit) %>% 
+  group_by(group, visit) %>% 
+  dplyr::count()
+```
+
+
+## Create dataframes for practice and experiment trials
+```{r}
+gen_prac <- gen_data %>% 
+  filter(practice == "yes")
+
+gen_exp <- gen_data %>% 
+  filter(practice != "yes")
+
+
+# check sample size for each
+gen_exp %>% 
+  distinct(participant, group, visit) %>% 
+  group_by(group, visit) %>% 
+  dplyr::count()
+```
+
+
+
+# PRACTICE VIDEOS
+After children watched each video of the familiar objects, they were asked to do a 1) word association task 2) word description task and 3) word generalization task (the present task under analyses) that pertained to the target object they were just taught in the video. For practice videos, we administered the same tasks but for the familiar object named in the practice video. The purpose of these tasks was to familiarize children for what they would need to do with the novel labels and objects in the experimental videos. 
+
+For practice videos, children were presented a shorter word generalization task than the experimental video. The generalization task for practice videos consisted of 3 images that were presented in a randomized order:
+1) photo of the named object from the video 
+2) drawing of the named object from the video
+3) photo of the distractor object from the video. 
+
+If the child responded incorrectly to one or more of the three images, the trials were presented again in a randomized order until children responded correctly to all three images. 1 TD child required 3 cycles.
+
+
+## Children who responded incorrectly to practice videos (familiar and distractor trials)
+The column praclist_cycle refers to the first and second presentation of the practice videos. Participant 351 had 2 incorrect responses in their first presentation and 1 incorrect response in the second presentation; this means that this participant responded correctly to all 3 images on the third presentation.
+
+```{r}
+gen_prac_0 <- gen_prac %>% 
+  filter(acc == 0)
+
+# number of responses that were incorrect during practice trials (7 different children seen here; 4 TD, 3 ASD)
+gen_prac_0 %>% 
+  distinct(participant, group, visit, type, genType) %>% 
+  group_by(group, visit, type, genType) %>% 
+  dplyr::count()
+```
+
+
+
+# EXPERIMENT VIDEOS
+For experimental videos, children were presented 11 images total:
+
+6 generalizations of the target object from the video:
+1) original form (photo)
+2) black and white (photo)
+3) different-colored target (photo)
+4) different-shaped target (photo)
+5) line drawing of the target (drawing)
+6) line drawing of the object and its different parts (drawing)
+
+
+3 of the distractor object
+1) original form (photo)
+2) black and white (photo)
+5) line drawing of the distractor (drawing)
+
+
+2 of a familiar object (the same familiar object from the practice video for that block)
+1) original form (photo)
+5) line drawing of the familiar object (drawing)
+
+
+### Examining responses to the familiar object (served as catch images)
+```{r}
+# catch images where children responded incorrectly
+gen_exp_catch <- gen_exp %>% 
+  filter(type == "familiar")
+
+gen_exp_catch_0 <- gen_exp %>% 
+  filter(type == "familiar" & acc == 0)
+
+ggplot(gen_exp_catch_0, aes(participant)) + 
+  geom_bar(aes(fill = object)) + 
+  facet_wrap(~ group + visit, ncol = 2)
+
+gen_exp_catch_0 %>% 
+  group_by(group, visit, cueCond) %>% 
+  dplyr::count()
+
+
+# 3% of all catch images were responded to incorrectly
+(nrow(gen_exp_catch_0) / nrow(gen_exp_catch)) * 100
+
+
+# create dataframe of distinct trials of catch acc = 0
+gen_exp_catch_0_distinct <- gen_exp_catch_0 %>% 
+  distinct(participant, visit, acc, object, group) %>% 
+  rename(catch_acc = acc)
+
+```
+
+
+
+### Remove trials where catch acc = 0
+```{r}
+gen_exp_acc <- gen_exp %>% 
+  left_join(gen_exp_catch_0_distinct, by = c("participant", "visit", "object", "group")) %>% 
+  mutate(catch_acc = replace_na(catch_acc, "keep")) %>% 
+  filter(catch_acc == "keep")
+
+
+# number of participants
+gen_exp_acc %>% 
+  distinct(participant, group, visit) %>% 
+  group_by(group, visit) %>% 
+  dplyr::count()
+  
+```
+
+
+
+### Create dataframes that are for only the target and the distractor
+```{r}
+# TARGET
+# create df that is only the target and distractor
+gen_exp_acc_target_only <- gen_exp_acc %>%
+  filter(type == "target")
+
+# check to see that every child has 6 responses 
+gen_exp_acc_target_only %>% 
+  group_by(participant, visit, object) %>% 
+  count()
+
+
+
+# distractor
+# create df that is only the distractor
+gen_exp_acc_dist_only <- gen_exp_acc %>%
+  filter(type == "distractor")
+
+# check to see that every child has 3 responses 
+gen_exp_acc_dist_only %>% 
+  group_by(participant, visit, object) %>% 
+  count()
+  
+```
+
+
+## TARGET
+### Number of correct generalizations per child/visit/object - TARGET
+```{r}
+gen_exp_acc_per_target_object <- gen_exp_acc_target_only %>% 
+  group_by(participant, visit, object) %>% 
+  mutate(sum_acc_object = sum(acc)) %>% 
+  distinct(participant, visit, object, group, age_yrs, 
+           language, sex, seq, trial_num, sum_acc_object)
+
+# histogram of correct generalizations per group, visit, and target object (fopam, mimole, nalip, pagoune)
+ggplot(gen_exp_acc_per_target_object, aes(x = sum_acc_object, fill = object)) + 
+  geom_histogram() + 
+  facet_wrap(~ visit + object + group, ncol = 4)
+
+
+# boxplot of correct generalizations per group, visit, and target object (fopam, mimole, nalip, pagoune)
+ggplot(gen_exp_acc_per_target_object, aes(x = group, y = sum_acc_object, fill = object)) + 
+  geom_boxplot() + 
+  geom_jitter(alpha = .3) + 
+  facet_wrap(~ visit)
+
+
+# minimum and maximum accuracy per group
+gen_exp_acc_per_target_object %>% 
+  ungroup() %>% 
+  group_by(visit, group) %>% 
+  summarise(min_acc = min(sum_acc_object), 
+            max_acc = max(sum_acc_object))
+
+```
+
+
+
+### Number of correct generalizations per child/visit (averaging across object type) - TARGET
+```{r}
+gen_exp_acc_target_mean_child <- gen_exp_acc_per_target_object %>% 
+  ungroup() %>% 
+  group_by(participant, visit) %>% 
+  mutate(sum_acc_child_mean = mean(sum_acc_object)) %>% 
+  distinct(participant, visit, group, age_yrs, language, sex, seq, sum_acc_child_mean)
+
+
+# histogram of correct generalizations per group, visit, and target object (fopam, mimole, nalip, pagoune)
+ggplot(gen_exp_acc_target_mean_child, aes(x = sum_acc_child_mean, fill = group)) + 
+  geom_histogram() + 
+  facet_wrap(~ visit + group)
+
+
+# boxplot of correct generalizations per group, visit, and target object (fopam, mimole, nalip, pagoune)
+ggplot(gen_exp_acc_target_mean_child, aes(x = group, y = sum_acc_child_mean, fill = group)) + 
+  geom_boxplot() + 
+  geom_jitter(alpha = .3) + 
+  facet_wrap(~ visit) + 
+  labs(x = "Group", y = "Mean accuracy") + 
+  theme(text = element_text(size=20))
+
+ggsave("./figures/gen_boxplot_acc_target.pdf", height = 8, width = 11, units = "in")
+
+
+
+# descriptives
+gen_exp_acc_target_mean_child %>% 
+  ungroup() %>% 
+  group_by(visit, group) %>% 
+  summarise(mean_mean_acc = mean(sum_acc_child_mean), 
+            mdn_mean_acc = median(sum_acc_child_mean),
+            sd_mean_acc = sd(sum_acc_child_mean))
+
+```
+
+### Number of correct generalizations per child/visit/OBJECT GENERALIZATION TYPE - TARGET
+This examines how many objects were generalized correctly per type of generalization. The maximum possible per generalization type is 4 objects (fopam, mimole, nalip, pagoune)
+```{r}
+gen_exp_acc_target_sum_gentype <- gen_exp_acc_target_only %>% 
+  mutate(genType = factor(genType, levels = c("original", "bw", "color", "shape", "whole", "parts"))) %>% 
+  group_by(participant, visit, genType) %>% 
+  mutate(sum_acc_gentype = sum(acc)) %>% 
+  distinct(participant, visit, group, age_yrs, 
+           language, sex, seq, sum_acc_gentype)
+
+# histogram of correct generalizations per group, visit, and generalization type
+ggplot(gen_exp_acc_target_sum_gentype, aes(x = sum_acc_gentype, fill = genType)) + 
+  geom_histogram() + 
+  facet_wrap(~ genType + visit + group, ncol = 4)
+
+# boxplot of correct generalizations per group, visit, and generalization type
+ggplot(gen_exp_acc_target_sum_gentype, aes(x = genType, y = sum_acc_gentype, fill = genType)) + 
+  geom_boxplot() + 
+  geom_jitter(alpha = .3) + 
+  facet_wrap(~ visit + group) + 
+  labs(x = "Type of Generalization", y = "Sum of accuracy") + 
+  theme(text = element_text(size=20)) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("./figures/gen_boxplot_gentype.pdf", height = 8, width = 11, units = "in")
+
+
+# descriptives
+gen_exp_acc_target_sum_gentype %>% 
+  ungroup() %>% 
+  group_by(genType, visit, group) %>% 
+  summarise(mean_acc = mean(sum_acc_gentype), 
+            mdn_acc = median(sum_acc_gentype),
+            min_acc = min(sum_acc_gentype), 
+            max_acc = max(sum_acc_gentype))
+```
+
+
+
+
+
+## DISTRACTOR
+### Number of correct generalizations per child/visit/object - DISTRACTOR
+```{r}
+gen_exp_acc_per_dist_object <- gen_exp_acc_dist_only %>% 
+  group_by(participant, visit, object) %>% 
+  mutate(sum_acc_object = sum(acc)) %>% 
+  distinct(participant, visit, object, group, age_yrs, 
+           language, sex, seq, trial_num, sum_acc_object)
+
+# histogram of correct generalizations per group, visit, and dist object (fopam, mimole, nalip, pagoune)
+ggplot(gen_exp_acc_per_dist_object, aes(x = sum_acc_object, fill = object)) + 
+  geom_histogram() + 
+  facet_wrap(~ visit + object + group, ncol = 4)
+
+
+# boxplot of correct generalizations per group, visit, and dist object (fopam, mimole, nalip, pagoune)
+ggplot(gen_exp_acc_per_dist_object, aes(x = group, y = sum_acc_object, fill = object)) + 
+  geom_boxplot() + 
+  geom_jitter(alpha = .3) + 
+  facet_wrap(~ visit)
+
+
+# minimum and maximum accuracy per group
+gen_exp_acc_per_dist_object %>% 
+  ungroup() %>% 
+  group_by(visit, group) %>% 
+  summarise(min_acc = min(sum_acc_object), 
+            max_acc = max(sum_acc_object))
+
+```
+
+
+
+### Number of correct generalizations per child/visit (averaging across object type) - DISTRACTOR
+```{r}
+gen_exp_acc_dist_mean_child <- gen_exp_acc_per_dist_object %>% 
+  ungroup() %>% 
+  group_by(participant, visit) %>% 
+  mutate(sum_acc_child_mean = mean(sum_acc_object)) %>% 
+  distinct(participant, visit, group, age_yrs, language, sex, seq, sum_acc_child_mean)
+
+
+# histogram of correct generalizations per group, visit, and dist object (fopam, mimole, nalip, pagoune)
+ggplot(gen_exp_acc_dist_mean_child, aes(x = sum_acc_child_mean, fill = group)) + 
+  geom_histogram() + 
+  facet_wrap(~ visit + group)
+
+
+# boxplot of correct generalizations per group, visit, and dist object (fopam, mimole, nalip, pagoune)
+ggplot(gen_exp_acc_dist_mean_child, aes(x = group, y = sum_acc_child_mean, fill = group)) + 
+  geom_boxplot() + 
+  geom_jitter(alpha = .3) + 
+  facet_wrap(~ visit) + 
+  labs(x = "Group", y = "Mean accuracy") + 
+  theme(text = element_text(size=20))
+
+ggsave("./figures/gen_boxplot_acc_dist.pdf", height = 8, width = 11, units = "in")
+
+
+# descriptives
+gen_exp_acc_dist_mean_child %>% 
+  ungroup() %>% 
+  group_by(visit, group) %>% 
+  summarise(mean_mean_acc = mean(sum_acc_child_mean), 
+            mdn_mean_acc = median(sum_acc_child_mean),
+            sd_mean_acc = sd(sum_acc_child_mean))
+
+```
+
+
+### Number of correct generalizations per child/visit/OBJECT GENERALIZATION TYPE - DISTRACTOR
+This examines how many objects were generalized correctly per type of generalization. The maximum possible per generalization type is 4 objects (fopam, mimole, nalip, pagoune)
+```{r}
+gen_exp_acc_dist_sum_gentype <- gen_exp_acc_dist_only %>% 
+  mutate(genType = factor(genType, levels = c("original", "bw", "drawing"))) %>% 
+  group_by(participant, visit, genType) %>% 
+  mutate(sum_acc_gentype = sum(acc)) %>% 
+  distinct(participant, visit, group, age_yrs, 
+           language, sex, seq, sum_acc_gentype)
+
+# histogram of correct generalizations per group, visit, and generalization type
+ggplot(gen_exp_acc_dist_sum_gentype, aes(x = sum_acc_gentype, fill = genType)) + 
+  geom_histogram() + 
+  facet_wrap(~ genType + visit + group, ncol = 4)
+
+# boxplot of correct generalizations per group, visit, and generalization type
+ggplot(gen_exp_acc_dist_sum_gentype, aes(x = genType, y = sum_acc_gentype, fill = genType)) + 
+  geom_boxplot() + 
+  geom_jitter(alpha = .3) + 
+  facet_wrap(~ visit + group)
+
+# descriptives
+gen_exp_acc_dist_sum_gentype %>% 
+  ungroup() %>% 
+  group_by(genType, visit, group) %>% 
+  summarise(mean_acc = mean(sum_acc_gentype), 
+            mdn_acc = median(sum_acc_gentype),
+            min_acc = min(sum_acc_gentype), 
+            max_acc = max(sum_acc_gentype))
+```
+
+
+
+
+### Correlate avg responses to target and distractor
+```{r}
+# merge target and distractor performance
+target_mean_child <- gen_exp_acc_target_mean_child %>% 
+  select(participant, group, visit, sum_acc_child_mean) %>% 
+  rename(target_acc_mean = sum_acc_child_mean)
+
+dist_mean_child <- gen_exp_acc_dist_mean_child %>% 
+  select(participant, group, visit, sum_acc_child_mean) %>% 
+  rename(dist_acc_mean = sum_acc_child_mean)
+
+target_dist_mean_child <- target_mean_child %>% 
+  full_join(dist_mean_child, by = c("participant", "visit", "group"))
+
+
+
+
+# scatterplots
+ggplot(target_dist_mean_child, aes(x = target_acc_mean, y = dist_acc_mean, color = group)) + 
+  geom_point() + 
+  geom_smooth(method = "lm") + 
+  facet_wrap(~ group + visit) + 
+  labs(x = "Mean accuracy to target", y = "Mean accuracy to distractor") + 
+  theme(text = element_text(size=20))
+
+ggsave("./figures/gen_scatterplot_acc.pdf", height = 8, width = 11, units = "in")
+
+```
+
+
+
+
+
