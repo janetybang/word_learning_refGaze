@@ -154,7 +154,6 @@ m_targAdvtg_full_REML = lmerTest::lmer(value ~ cueCond * video_phase * motion * 
 anova(m_targAdvtg_full_REML, type = c("III"), ddf = "Kenward-Roger")
 
 
-
 # emmeans
 object1 <- emmeans(m_targAdvtg_full_REML, ~ video_phase | motion)
 object2 <- emmeans(m_targAdvtg_full_REML, ~ motion | video_phase)
