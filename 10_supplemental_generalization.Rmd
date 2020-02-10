@@ -23,6 +23,8 @@ This code includes the analyses for pointing data.
 ## Load libraries and functions
 ```{r}
 library(tidyverse)
+detach(package:plyr)
+
 
 source("./helper_functions/R_helperFunctions_WLdata.R")
 ```
@@ -35,13 +37,15 @@ data <- read_csv("./data/generalization.csv") %>%
   mutate(participant = factor(participant))
 
 demographics <- read.csv("./data/demographics.csv") %>% 
-  select(-c(age_mos, mother_ed, father_ed, highest_ed, block1)) %>% 
-  mutate(participant = factor(participant))
+  select(-c(block1)) %>% 
+  mutate(participant = factor(participant)) %>% 
+  mutate(group = factor(group))
 
 
 exp_info <- read.csv("./data/exp_info_wl.csv") %>% 
   select(c(participant, group, seq, object, block, cueCond, trial_num)) %>% 
-  mutate(participant = factor(participant))
+  mutate(participant = factor(participant)) %>% 
+  mutate(group = factor(group))
 
 
 # merge and remove those with version 1 (this version included a video with the function, but it was difficult to administer because children would press the button before the experimenter said the prompt so it wasn't clear what they were pressing the button for)
@@ -62,7 +66,7 @@ gen_data <- data %>%
 
 The number of participants does not reflect the full sample because partway through testing the task was changed (see notes above).
 ```{r}
-# check number of participants (TYP = 27 for visit 1 and 29 for visit 2; ASD = 22 for visit 1 and 23 for visit 2)
+# check number of participants (TD = 27 for visit 1 and 29 for visit 2; ASD = 22 for visit 1 and 23 for visit 2)
 gen_data %>% 
   distinct(participant, group, visit) %>% 
   group_by(group, visit) %>% 
@@ -163,7 +167,7 @@ gen_exp_catch_0 %>%
 # create dataframe of distinct trials of catch acc = 0
 gen_exp_catch_0_distinct <- gen_exp_catch_0 %>% 
   distinct(participant, visit, acc, object, group) %>% 
-  rename(catch_acc = acc)
+  dplyr::rename("catch_acc" = "acc")
 
 ```
 
@@ -197,7 +201,7 @@ gen_exp_acc_target_only <- gen_exp_acc %>%
 # check to see that every child has 6 responses 
 gen_exp_acc_target_only %>% 
   group_by(participant, visit, object) %>% 
-  count()
+  dplyr::count()
 
 
 
@@ -209,7 +213,7 @@ gen_exp_acc_dist_only <- gen_exp_acc %>%
 # check to see that every child has 3 responses 
 gen_exp_acc_dist_only %>% 
   group_by(participant, visit, object) %>% 
-  count()
+  dplyr::count()
   
 ```
 
@@ -434,11 +438,11 @@ gen_exp_acc_dist_sum_gentype %>%
 # merge target and distractor performance
 target_mean_child <- gen_exp_acc_target_mean_child %>% 
   select(participant, group, visit, sum_acc_child_mean) %>% 
-  rename(target_acc_mean = sum_acc_child_mean)
+  dplyr::rename(target_acc_mean = sum_acc_child_mean)
 
 dist_mean_child <- gen_exp_acc_dist_mean_child %>% 
   select(participant, group, visit, sum_acc_child_mean) %>% 
-  rename(dist_acc_mean = sum_acc_child_mean)
+  dplyr::rename(dist_acc_mean = sum_acc_child_mean)
 
 target_dist_mean_child <- target_mean_child %>% 
   full_join(dist_mean_child, by = c("participant", "visit", "group"))

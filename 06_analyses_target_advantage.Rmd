@@ -200,28 +200,28 @@ plot_model(m_targAdvtg_full_REML, type = "diag")
 # create values
 values <- with(summary(emmeans(m_targAdvtg_full_REML, ~ motion * group * video_phase)), 
                cbind(motion, group, video_phase, emmean, lower.CL,upper.CL))
-values2 <- data.frame(setNames(as.data.frame(values), c("motion", "group", "video_phase", "mean", "lwr","upr")))
+values2 <- data.frame(setNames(as.data.frame(values), c("motion", "Group", "video_phase", "mean", "lwr","upr")))
 values2 <- transform(values2,
                      motion = factor(motion),
-                     group = factor(group), 
+                     Group = factor(Group), 
                      video_phase = factor(video_phase))
-values2$motion <- revalue(values2$motion, c("1" = "static", "2" = "function"))
-values2$group <- revalue(values2$group, c("1" = "TD", "2" = "ASD"))
-values2$video_phase <- revalue(values2$video_phase, c("1" = "baseline", "2" = "teaching", "3" = "test"))
+values2$motion <- revalue(values2$motion, c("1" = "Static", "2" = "Function"))
+values2$Group <- revalue(values2$Group, c("1" = "TD", "2" = "ASD"))
+values2$video_phase <- revalue(values2$video_phase, c("1" = "Baseline", "2" = "Teaching \n(Cue Shift)", "3" = "Test"))
 
 
 # plot
-ggplot(values2, aes(video_phase, y = mean, ymin = lwr, ymax = upr, linetype = group, shape = group))+
-  geom_line(aes(group = group), size = 1, position = position_dodge(width = .2)) +
+ggplot(values2, aes(video_phase, y = mean, ymin = lwr, ymax = upr, linetype = Group, shape = Group))+
+  geom_line(aes(group = Group), size = 1, position = position_dodge(width = .2)) +
   geom_pointrange(data = values2, position=position_dodge(width = .2), size = 1) + 
   geom_errorbar(width = .3, size = 1, position = position_dodge(width = .2)) +
-  labs(y = "target advantage", x = "video phase") + 
+  labs(y = "Target Advantage", x = "Video Phase") + 
   theme_bw(base_size = 12, base_family = "") + 
   theme(text = element_text(size = 30)) + 
   scale_shape_manual(values = c(19, 17)) + 
   geom_hline(yintercept = 0) + 
   facet_wrap(~ motion, ncol = 2)
-ggsave("./figures/target_advantage.pdf", width = 15, height = 7, unit = "in")
+ggsave("./figures/target_advantage.pdf", width = 15, height = 9, unit = "in")
 ```
 
 

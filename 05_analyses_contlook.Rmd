@@ -232,28 +232,28 @@ ggplot(contlook, aes(x = cueCond, y = value, shape = group, color = group)) +
 # create values
 values <- with(summary(emmeans(m_contlook_REML, ~ cueCond * motion * group)), 
                cbind(cueCond, motion, group, emmean, lower.CL,upper.CL))
-values2 <- data.frame(setNames(as.data.frame(values), c("cueCond", "motion", "group", "mean", "lwr","upr")))
+values2 <- data.frame(setNames(as.data.frame(values), c("cueCond", "motion", "Group", "mean", "lwr","upr")))
 values2 <- transform(values2,
                      motion = factor(motion),
                      cueCond = factor(cueCond), 
-                     group = factor(group))
+                     Group = factor(Group))
 values2$cueCond <- revalue(values2$cueCond, c("1" = "gaze", "2" = "arrow"))
-values2$motion <- revalue(values2$motion, c("1" = "static", "2" = "function"))
-values2$group <- revalue(values2$group, c("1" = "TD", "2" = "ASD"))
+values2$motion <- revalue(values2$motion, c("1" = "Static", "2" = "Function"))
+values2$Group <- revalue(values2$Group, c("1" = "TD", "2" = "ASD"))
 
 
 # plot
-ggplot(values2, aes(cueCond, y = mean, ymin = lwr, ymax = upr, linetype = group, shape = group))+
-  geom_line(aes(group = group), size = 1, position = position_dodge(width = .2)) +
+ggplot(values2, aes(cueCond, y = mean, ymin = lwr, ymax = upr, linetype = Group, shape = Group))+
+  geom_line(aes(group = Group), size = 1, position = position_dodge(width = .2)) +
   geom_pointrange(data = values2, position=position_dodge(width = .2), size = 1) + 
   geom_errorbar(width = .3, size = 1, position = position_dodge(width = .2)) +
-  labs(y = "contingent looking difference", x = "cue condition") + 
+  labs(y = "Contingent Looking Difference", x = "Cue Condition") + 
   theme_bw(base_size = 12, base_family = "") + 
   theme(text = element_text(size = 30)) + 
   scale_shape_manual(values = c(19, 17)) + 
   geom_hline(yintercept = 0) +
   facet_wrap(~ motion, ncol = 2)
-ggsave("./figures/contlook_diff.pdf", width = 12, height = 7, unit = "in")
+ggsave("./figures/contlook_diff.pdf", width = 12, height = 9, unit = "in")
 ```
 
 ## Visual analysis: language, block to look at cue condition effects

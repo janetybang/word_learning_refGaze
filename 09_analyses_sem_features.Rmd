@@ -56,7 +56,7 @@ demographics <- read.csv("./data/demographics.csv")
 ```{r}
 # Select variables in demographics and combine with description data
 demo_descrip_sum <- demographics %>% 
-  select(c(participant, age_yrs, language, sex, mother_ed)) %>% 
+  select(c(participant, age_yrs, language, sex, parental_ed)) %>% 
   right_join(descrip_sum, by = "participant")
 
 # Select variables in exp_info_wl and combine with new description data
@@ -377,8 +377,6 @@ pwr.t.test(n = 60, d = .15, sig.level = 0.05, power = NULL,
 
 
 
-
-
 # post hoc testing of trends
 trends_cueCond <- emtrends(m_vineland_REML, pairwise ~ cueCond, var = "vineland_cntr" )
 trends_group <- emtrends(m_vineland_REML, pairwise ~ group, var = "vineland_cntr" )
@@ -395,16 +393,26 @@ emmip(m_vineland_REML, group ~ vineland_cntr, cov.reduce = range)
 # plots for publication
 plot_model(m_vineland_REML, type = "eff", terms = c("vineland_cntr", "cueCond"), 
            color = c("blue", "red"), 
-           axis.lim = c(0, 16)) 
-ggsave("./figures/sem_features_vineland_slopes.pdf", width = 11.5, height = 8, unit = "in")
+           # show.data = T,
+           # jitter = .8,
+           axis.lim = c(-1, 17),
+           show.legend = F, 
+           title =) + 
+  theme(text = element_text(size = 30)) + 
+  labs(x = "Social Competence Skills (M centered = 100.52)", y = "Number of Semantic Features")
+ggsave("./figures/sem_features_vineland_slopes.pdf", width = 12, height = 9, unit = "in")
 
 
 ggplot(descrip_mm_cov, aes(x = vineland_cntr, y = sem_features, shape = group, color = cueCond)) + 
-  geom_jitter(size = 3) + 
+  geom_jitter(size = 3) +
   scale_shape_manual(values = c(1,17)) + 
-  ylim(0, 16) + 
-  scale_color_manual(values = c("red", "blue"))
-ggsave("./figures/sem_features_vineland_points.pdf", width = 11.5, height = 8, unit = "in")
+  ylim(-1, 17) + 
+  scale_color_manual(values = c("red", "blue")) + 
+  theme_classic(base_size = 12, base_family = "") + 
+  theme(text = element_text(size = 30)) + 
+  labs(x = "Social Competence Skills (M centered = 100.52)", y = "Number of Semantic Features") + 
+  theme(legend.position = "none")
+ggsave("./figures/sem_features_vineland_points.png", width = 12, height = 9, unit = "in")
 
 
 

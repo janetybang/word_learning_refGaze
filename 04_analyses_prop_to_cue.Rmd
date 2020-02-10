@@ -44,6 +44,7 @@ library(compute.es)
 library(lattice)
 library(pwr)
 library(sjPlot)
+library(psych)
 
 theme_set(theme_bw())
 
@@ -310,29 +311,29 @@ ggplot( propcue_full, aes(x = cueCond, y = value, shape = group, color = group))
 # create values
 values <- with(summary(emmeans(m_propcue_REML, ~ cueCond * motion * group * video_phase), type = "response"), 
                cbind(cueCond, motion, group, video_phase, response, lower.CL,upper.CL))
-values2 <- data.frame(setNames(as.data.frame(values), c("cueCond", "motion", "group", "video_phase", "mean", "lwr","upr")))
+values2 <- data.frame(setNames(as.data.frame(values), c("cueCond", "motion", "Group", "video_phase", "mean", "lwr","upr")))
 values2 <- transform(values2,
                      motion = factor(motion),
                      cueCond = factor(cueCond), 
-                     group = factor(group), 
+                     Group = factor(Group), 
                      video_phase = factor(video_phase))
 values2$cueCond <- revalue(values2$cueCond, c("1" = "gaze", "2" = "arrow"))
-values2$motion <- revalue(values2$motion, c("1" = "static", "2" = "function"))
-values2$group <- revalue(values2$group, c("1" = "TD", "2" = "ASD"))
-values2$video_phase <- revalue(values2$video_phase, c("1" = "baseline", "2" = "teaching"))
+values2$motion <- revalue(values2$motion, c("1" = "Static", "2" = "Function"))
+values2$Group <- revalue(values2$Group, c("1" = "TD", "2" = "ASD"))
+values2$video_phase <- revalue(values2$video_phase, c("1" = "Baseline", "2" = "Teaching (Cue Shift)"))
 
 
 # plot
-ggplot(values2, aes(cueCond, y = mean, ymin = lwr, ymax = upr, linetype = group, shape = group))+
-  geom_line(aes(group = group), size = 1, position = position_dodge(width = .2)) +
+ggplot(values2, aes(cueCond, y = mean, ymin = lwr, ymax = upr, linetype = Group, shape = Group))+
+  geom_line(aes(group = Group), size = 1, position = position_dodge(width = .2)) +
   geom_pointrange(data = values2, position=position_dodge(width = .2), size = 1) + 
   geom_errorbar(width = .3, size = 1, position = position_dodge(width = .2)) +
-  labs(y = "proportion to cue", x = "cue condition") + 
+  labs(y = "Proportion to Cue", x = "Cue Condition") + 
   theme_bw(base_size = 12, base_family = "") + 
   theme(text = element_text(size = 30)) + 
   scale_shape_manual(values = c(19, 17)) + 
   facet_wrap(~ motion + video_phase, ncol = 2)
-ggsave("./figures/proportion_cue.pdf", width = 11.5, height = 8, unit = "in")
+ggsave("./figures/proportion_cue.pdf", width = 12, height = 9, unit = "in")
 ```
 
 
